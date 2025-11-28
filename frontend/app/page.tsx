@@ -31,7 +31,7 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         // Store detection data in sessionStorage with a generated id
-        const id = data.id || `detection_${Date.now()}`;
+        const id = `detection_${Date.now()}`;
         sessionStorage.setItem(`detection_${id}`, JSON.stringify(data));
         router.push(`/select/${id}`);
       } else {

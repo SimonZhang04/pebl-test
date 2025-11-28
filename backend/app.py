@@ -39,23 +39,25 @@ async def detect_holds_api(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
         
         # Run detection
-        result_json, labeled_image_path = detect_holds(filepath)
+        detections_data, original_image_path = detect_holds(filepath)
         
-        # Encode labeled image as base64
-        with open(labeled_image_path, "rb") as f:
+        # Encode original image (without labels) as base64
+        with open(original_image_path, "rb") as f:
             img_bytes = f.read()
         img_base64 = base64.b64encode(img_bytes).decode("utf-8")
         
         # Cleanup temporary files
         if os.path.exists(filepath):
             os.remove(filepath)
-        if os.path.exists(labeled_image_path):
-            os.remove(labeled_image_path)
+        if os.path.exists(original_image_path):
+            os.remove(original_image_path)
         
         return {
             "success": True,
-            "detections": result_json,
-            "labeled_image": img_base64,  # Base64 encoded image with bounding boxes and labels
+            "detections": detections_data["detections"],  # Array of detections with bounding boxes
+            "image_dimensions": detections_data["image_dimensions"],  # Image size info
+            "total_detections": detections_data["total_detections"],
+            "image": img_base64,  # Base64 encoded original image (without labels)
             "image_format": "data:image/jpeg;base64"  # For easy use in frontend: data:image/jpeg;base64,{img_base64}
         }
         

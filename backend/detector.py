@@ -86,22 +86,22 @@ def detect_holds(image_path: str):
         image_path: Path to the input image file
         
     Returns:
-        tuple: (predictions_json, labeled_image_path)
-            - predictions_json: Dictionary with detection results and colors
-            - labeled_image_path: Path to the output image with bounding boxes
+        tuple: (detections_data, original_image_path)
+            - detections_data: Dictionary with structured detection results including bounding boxes
+            - original_image_path: Path to the original resized image (without labels)
     """
     # Generate unique filenames for this request
     unique_id = str(uuid.uuid4())[:8]
     resized_path = f"temp_resized_{unique_id}.jpg"
-    labeled_path = f"temp_labeled_{unique_id}.jpg"
     
     try:
-        # --- Resize image ---
-        img = cv2.imread(image_path)
-        if img is None:
+        # --- Load and resize image ---
+        original_img = cv2.imread(image_path)
+        if original_img is None:
             raise ValueError(f"Could not read image from {image_path}")
         
-        img = cv2.resize(img, (1024, 1024), interpolation=cv2.INTER_AREA)
+        original_height, original_width = original_img.shape[:2]
+        img = cv2.resize(original_img, (1024, 1024), interpolation=cv2.INTER_AREA)
         cv2.imwrite(resized_path, img)
         
         # --- Get model and predict ---
@@ -112,50 +112,72 @@ def detect_holds(image_path: str):
         # --- Load resized image for processing ---
         image = cv2.imread(resized_path)
         
-        # --- Process each detection ---
-        for pred in predictions["predictions"]:
-            x, y, w, h = int(pred["x"]), int(pred["y"]), int(pred["width"]), int(pred["height"])
+        # --- Process each detection and format for frontend ---
+        formatted_detections = []
+        for idx, pred in enumerate(predictions["predictions"]):
+            # Roboflow returns center-based coordinates
+            x_center = int(pred["x"])
+            y_center = int(pred["y"])
+            w = int(pred["width"])
+            h = int(pred["height"])
             
-            x1, x2 = x - w // 2, x + w // 2
-            y1, y2 = y - h // 2, y + h // 2
+            # Convert to corner coordinates (x1, y1, x2, y2) for 1024x1024 image
+            x1 = x_center - w // 2
+            y1 = y_center - h // 2
+            x2 = x_center + w // 2
+            y2 = y_center + h // 2
+            
+            # Get color from crop
             crop = image[y1:y2, x1:x2]
-            
             if crop.size > 0:
                 color = get_dominant_color_centered(crop, fraction=0.7)
             else:
                 color = "unknown"
             
-            pred["color"] = color
-            
-            # --- Draw bounding box ---
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            
-            # --- Label with color ---
-            cv2.putText(
-                image,
-                color,
-                (x1, y1 - 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 255),
-                2
-            )
+            # Format detection data for frontend
+            detection = {
+                "id": idx,  # Unique ID for selection
+                "color": color,
+                "confidence": pred.get("confidence", 0),
+                "class": pred.get("class", "hold"),
+                # Bounding box coordinates in resized image (1024x1024)
+                "bbox": {
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "width": w,
+                    "height": h,
+                    "center": {"x": x_center, "y": y_center}
+                },
+                # Original coordinates from Roboflow (for reference)
+                "raw": {
+                    "x": x_center,
+                    "y": y_center,
+                    "width": w,
+                    "height": h
+                }
+            }
+            formatted_detections.append(detection)
         
-        # --- Save labeled image ---
-        cv2.imwrite(labeled_path, image)
+        # Return structured data with original image (no labels drawn)
+        detections_data = {
+            "detections": formatted_detections,
+            "image_dimensions": {
+                "width": 1024,  # Resized image width
+                "height": 1024,  # Resized image height
+                "original_width": original_width,
+                "original_height": original_height
+            },
+            "total_detections": len(formatted_detections)
+        }
         
-        # Cleanup resized image
-        if os.path.exists(resized_path):
-            os.remove(resized_path)
-        
-        return predictions, labeled_path
+        return detections_data, resized_path
         
     except Exception as e:
         # Cleanup on error
         if os.path.exists(resized_path):
             os.remove(resized_path)
-        if os.path.exists(labeled_path):
-            os.remove(labeled_path)
         raise e
 
 
@@ -168,12 +190,13 @@ if __name__ == "__main__":
         print(f"Error: Image file '{image_path}' not found.")
         sys.exit(1)
     
-    predictions, labeled_path = detect_holds(image_path)
+    detections_data, image_path = detect_holds(image_path)
     
     # Save JSON for script usage
     json_path = "detection_with_color.json"
     with open(json_path, "w") as f:
-        json.dump(predictions, f, indent=2)
+        json.dump(detections_data, f, indent=2)
     
-    print(f"Saved: {labeled_path}")
+    print(f"Image saved: {image_path}")
     print(f"Saved: {json_path}")
+    print(f"Total detections: {detections_data['total_detections']}")
