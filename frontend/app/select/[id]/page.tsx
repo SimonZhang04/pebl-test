@@ -50,6 +50,10 @@ export default function SelectPage() {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const [geminiResponse, setGeminiResponse] = useState<{
+    explanation: string;
+  } | null>(null);
+  const [matchingImageUrl, setMatchingImageUrl] = useState<string>("");
 
   useEffect(() => {
     // Load detection data from sessionStorage
@@ -65,6 +69,13 @@ export default function SelectPage() {
       }
     }
   }, [id]);
+
+  // Get base64 image without data URI prefix
+  const getBase64Image = (): string => {
+    if (!imageUrl) return "";
+    // Remove "data:image/jpeg;base64," prefix if present
+    return imageUrl.includes(",") ? imageUrl.split(",")[1] : imageUrl;
+  };
 
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -230,15 +241,48 @@ export default function SelectPage() {
           selected_detections: selectedDetections,
           all_detections: detections,
           selected_ids: Array.from(selectedIds),
+          image_base64: getBase64Image(),
         }),
       });
 
       if (response.ok) {
-        alert("Submitted successfully!");
+        const data = await response.json();
+        if (data.success) {
+          // Check if it's a match with existing route
+          if (data.is_match && data.matching_image_filename) {
+            // Load and display the matching image
+            const backendUrl =
+              process.env.NEXT_PUBLIC_BACKEND_SERVER_URL || "http://localhost:8000";
+            const imageUrl = `${backendUrl}/routes/images/${data.matching_image_filename}`;
+            setMatchingImageUrl(imageUrl);
+            
+            // Set Gemini response if available
+            if (data.gemini_response && data.gemini_response.explanation) {
+              setGeminiResponse({
+                explanation: data.gemini_response.explanation || data.gemini_response.full_response || "",
+              });
+            }
+            
+            alert("This route already exists! Showing the existing route.");
+          } else {
+            // New route - set Gemini response
+            if (data.gemini_response && data.gemini_response.explanation) {
+              setGeminiResponse({
+                explanation: data.gemini_response.explanation || data.gemini_response.full_response || "",
+              });
+            }
+            
+            alert("Route comparison completed!");
+          }
+        } else {
+          alert("Submit failed: Invalid response");
+        }
       } else {
-        alert("Submit failed");
+        const errorData = await response.json().catch(() => ({}));
+        alert(`Submit failed: ${errorData.detail || "Unknown error"}`);
       }
-    } catch {
+    } catch (error) {
+      console.error("Error submitting:", error);
       alert("Error submitting");
     } finally {
       setSubmitting(false);
@@ -250,7 +294,62 @@ export default function SelectPage() {
   }
 
   return (
-    <div style={{ padding: "2rem", maxWidth: "1200px", margin: "0 auto" }}>
+    <div style={{ padding: "2rem", maxWidth: "1200px", margin: "0 auto", position: "relative" }}>
+      {submitting && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.6)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              padding: "2rem 3rem",
+              borderRadius: "12px",
+              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                width: "50px",
+                height: "50px",
+                border: "4px solid #f3f3f3",
+                borderTop: "4px solid #007bff",
+                borderRadius: "50%",
+                animation: "spin 1s linear infinite",
+              }}
+            />
+            <p style={{ margin: 0, fontSize: "1.1rem", fontWeight: "500", color: "#333" }}>
+              Processing images and comparing routes...
+            </p>
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "#666" }}>
+              This may take a few moments
+            </p>
+          </div>
+        </div>
+      )}
+      
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+      
       <h1 style={{ marginBottom: "1.5rem" }}>Select Areas</h1>
       
       <div style={{ position: "relative", display: "inline-block", width: "100%" }}>
@@ -410,6 +509,68 @@ export default function SelectPage() {
                   </div>
                 </div>
               ))}
+          </div>
+        </div>
+      )}
+
+      {matchingImageUrl && (
+        <div style={{ marginTop: "2rem" }}>
+          <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem" }}>
+            Existing Route Found
+          </h2>
+          <div
+            style={{
+              padding: "1rem",
+              backgroundColor: "#fff3cd",
+              border: "2px solid #ffc107",
+              borderRadius: "8px",
+              marginBottom: "1rem",
+            }}
+          >
+            <p style={{ margin: 0, fontSize: "0.95rem", color: "#856404" }}>
+              This route already exists in your collection. Here's the existing route:
+            </p>
+          </div>
+          <img
+            src={matchingImageUrl}
+            alt="Existing route"
+            style={{
+              width: "100%",
+              maxWidth: "800px",
+              height: "auto",
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+            }}
+          />
+        </div>
+      )}
+      
+      {geminiResponse && (
+        <div style={{ marginTop: "2rem" }}>
+          <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem" }}>
+            Route Comparison Result
+          </h2>
+          <div
+            style={{
+              padding: "1.5rem",
+              backgroundColor: "#f8f9fa",
+              border: "2px solid #dee2e6",
+              borderRadius: "8px",
+            }}
+          >
+            {geminiResponse.explanation && (
+              <div
+                style={{
+                  fontSize: "1rem",
+                  lineHeight: "1.6",
+                  color: "#333",
+                }}
+              >
+                <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                  {geminiResponse.explanation}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

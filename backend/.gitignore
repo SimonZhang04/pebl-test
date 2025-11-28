@@ -62,6 +62,9 @@ htmlcov/
 *.tiff
 !wall.jpg  # Keep original if needed
 
+# Generated images directory
+images/
+
 # Output files
 *_resized.jpg
 prediction_*.jpg

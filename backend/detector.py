@@ -4,6 +4,7 @@ import numpy as np
 import json
 import os
 import uuid
+import base64
 from sklearn.cluster import KMeans
 from dotenv import load_dotenv
 
@@ -179,6 +180,54 @@ def detect_holds(image_path: str):
         if os.path.exists(resized_path):
             os.remove(resized_path)
         raise e
+
+
+def create_highlighted_image(image_base64: str, selected_detections: list, highlight_color: tuple) -> str:
+    """
+    Create an image with only selected holds highlighted in the specified color.
+    
+    Args:
+        image_base64: Base64 encoded image string (without data URI prefix)
+        selected_detections: List of detection objects with bbox information
+        highlight_color: BGR color tuple (e.g., (255, 0, 0) for blue, (0, 0, 255) for red)
+        
+    Returns:
+        Base64 encoded JPEG image string
+    """
+    # Decode base64 image
+    img_bytes = base64.b64decode(image_base64)
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if img is None:
+        raise ValueError("Could not decode image from base64")
+    
+    # Create a copy of the image
+    highlighted_img = img.copy()
+    
+    # Draw bounding boxes for selected detections only
+    for detection in selected_detections:
+        bbox = detection.get("bbox", {})
+        if not bbox:
+            continue  # Skip if no bbox data
+        
+        x1 = int(bbox.get("x1", 0))
+        y1 = int(bbox.get("y1", 0))
+        x2 = int(bbox.get("x2", 0))
+        y2 = int(bbox.get("y2", 0))
+        
+        # Validate coordinates
+        if x2 <= x1 or y2 <= y1:
+            continue  # Skip invalid bounding boxes
+        
+        # Draw only the bounding box border (no fill/overlay) to preserve hold colors
+        cv2.rectangle(highlighted_img, (x1, y1), (x2, y2), highlight_color, 4)
+    
+    # Encode image to JPEG base64
+    _, buffer = cv2.imencode('.jpg', highlighted_img)
+    img_base64 = base64.b64encode(buffer).decode('utf-8')
+    
+    return img_base64
 
 
 # Allow running as a script for testing
