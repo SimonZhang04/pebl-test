@@ -4,3 +4,4 @@ roboflow
 opencv-python
 scikit-learn
 numpy
+python-dotenv
