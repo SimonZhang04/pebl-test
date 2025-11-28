@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+roboflow
+opencv-python
+scikit-learn
+numpy
